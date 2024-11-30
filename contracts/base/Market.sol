@@ -8,6 +8,7 @@ pragma solidity ^0.8.0;
 import "@openzeppelin/contracts-upgradeable/access/AccessControlUpgradeable.sol";
 import "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
 import {IMarket} from "./interfaces/IMarket.sol";
+import "hardhat/console.sol";
 
 /**
  * @dev Foundation of a market standard.
@@ -30,6 +31,8 @@ contract Market is IMarket, Initializable, AccessControlUpgradeable {
 
     // Market paused
     bool public paused;
+
+    Product internal _targetProduct;
 
     // Mapping from string of product codes to Product struct
     mapping(string => Product) internal _catalog;
@@ -221,6 +224,33 @@ contract Market is IMarket, Initializable, AccessControlUpgradeable {
         emit Adjust(productCode, productName, price, _msgSender());
     }
 
+    function _purchase(string memory productCode, uint256 quantity)
+        internal
+        productExist(productCode)
+        isActive
+    {
+        require(_targetProduct.exists, "product dne");
+        // store product code in product struct
+        require(quantity > 0, "invalid quantity");
+        require(_targetProduct.quantity > 0, "product oos");
+        require(_targetProduct.quantity >= quantity, "insufficient stock");
+        require(
+            quantity * _targetProduct.price <= msg.value,
+            "insufficient funds"
+        );
+
+        _targetProduct.quantity -= quantity;
+        _catalog[productCode] = _targetProduct;
+
+        emit Purchase(
+            productCode,
+            _targetProduct.name,
+            quantity,
+            _targetProduct.price * quantity,
+            _msgSender()
+        );
+    }
+
     /**
      * @dev See {IMarket-purchase}
      */
@@ -232,25 +262,9 @@ contract Market is IMarket, Initializable, AccessControlUpgradeable {
         productExist(productCode)
         isActive
     {
-        Product memory product = _catalog[productCode];
-
-        require(quantity > 0, "invalid quantity");
-        require(product.quantity > 0, "product oos");
-        require(product.quantity >= quantity, "insufficient stock");
-        require(quantity * product.price <= msg.value, "insufficient funds");
-
-        product.quantity -= quantity;
-        _catalog[productCode] = product;
-
-        payable(owner).transfer(product.price);
-
-        emit Purchase(
-            productCode,
-            product.name,
-            quantity,
-            product.price * quantity,
-            _msgSender()
-        );
+        _targetProduct = _catalog[productCode];
+        _purchase(productCode, quantity);
+        payable(owner).transfer(_targetProduct.price);
     }
 
     /**
